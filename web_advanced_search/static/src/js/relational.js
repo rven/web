@@ -1,9 +1,79 @@
 odoo.define("web_advanced_search.RelationalOwl", function (require) {
     "use strict";
 
+    const BasicModel = require("web.BasicModel");
     const patchMixin = require("web.patchMixin");
-    // eslint-disable-next-line no-undef
+    const {ComponentAdapter} = require("web.OwlCompatibility");
     const {Component} = owl;
+    const {xml} = owl.tags;
+    const field_registry = require("web.field_registry");
+    const relationalFields = require("web.relational_fields");
+    const FieldMany2One = relationalFields.FieldMany2One;
+    const FieldManagerMixin = require("web.FieldManagerMixin");
+
+    const AdvancedSearchWidget = FieldMany2One.extend(FieldManagerMixin, {
+        init: function (parent) {
+            const field = parent.__owl__.parent.field;
+            const model = new BasicModel(field.relation);
+            // Create dummy record with only the field the user is searching
+            const params = {
+                fieldNames: [field.name],
+                modelName: field.relation,
+                context: field.context,
+                type: "record",
+                viewType: "default",
+                fieldsInfo: {
+                    default: {},
+                },
+                fields: {
+                    [field.name]: _.omit(
+                        field,
+                        // User needs all records, to actually produce a new domain
+                        "domain",
+                        // Onchanges make no sense in this context, there's no record
+                        "onChange"
+                    ),
+                },
+            };
+            if (field.type.endsWith("2many")) {
+                // X2many fields behave like m2o in the search context
+                params.fields[field.name].type = "many2one";
+            }
+            params.fieldsInfo.default[field.name] = {};
+            // Emulate `model.load()`, without RPC-calling `default_get()`
+            this.datapoint_id = model._makeDataPoint(params).id;
+            model.generateDefaultValues(this.datapoint_id, {});
+            // To generate a new fake ID
+            this._fake_id = -1;
+            this._super(this, [
+                parent,
+                field.name,
+                this._get_record(model),
+                {
+                    mode: "edit",
+                    attrs: {
+                        options: {
+                            no_create_edit: true,
+                            no_create: true,
+                            no_open: true,
+                            no_quick_create: true,
+                        },
+                    },
+                },
+            ]);
+            FieldManagerMixin.init.call(this, model);
+        },
+        _get_record: function (model) {
+            return model.get(this.datapoint_id);
+        },
+        /**
+         * @override
+         */
+        _confirmChange: function (id, fields, event) {
+            this.datapoint_id = id;
+            return this.reset(this._get_record(this.model), event);
+        },
+    });
 
     /**
      * A search field for relational fields.
@@ -18,14 +88,63 @@ odoo.define("web_advanced_search.RelationalOwl", function (require) {
     class Relational extends Component {
         constructor() {
             super(...arguments);
+            this.field = this.__owl__.parent.state.field;
+            this.operator = this.__owl__.parent.state.operator;
+            this.FieldWidget = false;
+            this.set_widget();
+        }
+
+        /**
+         * @override
+         */
+        set_widget() {
+            // Destroy previous widget, if any
+            if (this.FieldWidget) {
+                this.FieldWidget.destroy();
+                delete this.FieldWidget;
+            }
+            // Get widget class to be used
+            switch (this.operator) {
+                case "=":
+                case "!=":
+                    this.FieldWidget = AdvancedSearchWidget;
+                    break;
+                default:
+                    this._field_widget_name = "char";
+                    this.FieldWidget = field_registry.get(this._field_widget_name);
+            }
         }
     }
 
-    Relational.template = "web_advanced_search.Relational";
+    Relational.template = xml`
+        <div>
+            <ComponentAdapter Component="FieldWidget" />
+        </div>`;
+    Relational.components = {ComponentAdapter};
     return patchMixin(Relational);
 });
-
-// /**
+//
+// /* Copyright 2015 Therp BV <http://therp.nl>
+//  * Copyright 2017-2018 Jairo Llopis <jairo.llopis@tecnativa.com>
+//  * Copyright 2020 Alexandre Díaz
+//  * License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl). */
+//
+// odoo.define("web_advanced_search", function(require) {
+//     "use strict";
+//
+//     const config = require("web.config");
+//     const Domain = require("web.Domain");
+//     const DomainSelector = require("web.DomainSelector");
+//     const DomainSelectorDialog = require("web.DomainSelectorDialog");
+//     const field_registry = require("web.field_registry");
+//     const FieldManagerMixin = require("web.FieldManagerMixin");
+//     const FilterMenu = require("web.FilterMenu");
+//     const human_domain = require("web_advanced_search.human_domain");
+//     const Widget = require("web.Widget");
+//     const search_filters_registry = require("web.search_filters_registry");
+//     const Char = search_filters_registry.get("char");
+//
+//     /**
 //      * A search field for relational fields.
 //      *
 //      * It implements and extends the `FieldManagerMixin`, and acts as if it
@@ -241,3 +360,4 @@ odoo.define("web_advanced_search.RelationalOwl", function (require) {
 //         AdvancedSearchProposition: AdvancedSearchProposition,
 //         Relational: Relational,
 //     };
+// });

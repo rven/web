@@ -10,6 +10,8 @@ odoo.define("web_advanced_search.CustomFilterItem", function (require) {
         class AdvancedCustomFilterItem extends T {
             constructor() {
                 super(...arguments);
+                this.state.field = false;
+                this.state.operator = "=";
                 this.OPERATORS.relational = _.sortBy(this.OPERATORS.char, (op) => {
                     switch (true) {
                         case op.symbol === "=" && op.value === undefined:
@@ -37,6 +39,26 @@ odoo.define("web_advanced_search.CustomFilterItem", function (require) {
                 } else {
                     super._setDefaultValue(...arguments);
                 }
+            }
+
+            /**
+             * @private
+             * @param {Object} condition
+             * @param {Event} ev
+             */
+            _onFieldSelect(condition, ev) {
+                super._onFieldSelect(...arguments);
+                this.state.field = this.fields[ev.target.selectedIndex];
+            }
+
+            /**
+             * @private
+             * @param {Object} condition
+             * @param {Event} ev
+             */
+            _onOperatorSelect(condition, ev) {
+                super._onOperatorSelect(...arguments);
+                this.state.operator = this.fields[ev.target.selectedIndex];
             }
         }
 
